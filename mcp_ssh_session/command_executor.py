@@ -794,11 +794,12 @@ class CommandExecutor:
                                         f"[TIMEOUT_MONITOR_SENTINEL] Sentinel detected - command complete"
                                     )
                                     clean_output = self._session_manager._strip_ansi(cmd.stdout)
-                                    sentinel_pattern = re.compile(re.escape(cmd.sentinel) + r"(\d+)")
-                                    match = sentinel_pattern.search(clean_output)
-                                    if match:
-                                        exit_code = int(match.group(1))
-                                        final_output = clean_output[: match.start()]
+                                    parsed = self._session_manager._parse_sentinel(
+                                        clean_output, cmd.sentinel
+                                    )
+                                    if parsed:
+                                        marker_start, exit_code = parsed
+                                        final_output = clean_output[:marker_start]
                                         with self._lock:
                                             if command_id in self._commands:
                                                 cmd.stdout = final_output.strip()
@@ -847,11 +848,12 @@ class CommandExecutor:
                                     f"[TIMEOUT_MONITOR_IDLE_SENTINEL] Sentinel detected - command complete"
                                 )
                                 clean_output = self._session_manager._strip_ansi(cmd.stdout)
-                                sentinel_pattern = re.compile(re.escape(cmd.sentinel) + r"(\d+)")
-                                match = sentinel_pattern.search(clean_output)
-                                if match:
-                                    exit_code = int(match.group(1))
-                                    final_output = clean_output[: match.start()]
+                                parsed = self._session_manager._parse_sentinel(
+                                    clean_output, cmd.sentinel
+                                )
+                                if parsed:
+                                    marker_start, exit_code = parsed
+                                    final_output = clean_output[:marker_start]
                                     with self._lock:
                                         if command_id in self._commands:
                                             cmd.stdout = final_output.strip()
@@ -1018,11 +1020,12 @@ class CommandExecutor:
                                         f"[BG_MONITOR_SENTINEL] Sentinel detected - command complete"
                                     )
                                     clean_output = self._session_manager._strip_ansi(cmd.stdout)
-                                    sentinel_pattern = re.compile(re.escape(cmd.sentinel) + r"(\d+)")
-                                    match = sentinel_pattern.search(clean_output)
-                                    if match:
-                                        exit_code = int(match.group(1))
-                                        final_output = clean_output[: match.start()]
+                                    parsed = self._session_manager._parse_sentinel(
+                                        clean_output, cmd.sentinel
+                                    )
+                                    if parsed:
+                                        marker_start, exit_code = parsed
+                                        final_output = clean_output[:marker_start]
                                         with self._lock:
                                             if command_id in self._commands:
                                                 cmd.stdout = final_output.strip()
@@ -1088,11 +1091,12 @@ class CommandExecutor:
                                     f"[BG_MONITOR_IDLE_SENTINEL] Sentinel detected - command complete"
                                 )
                                 clean_output = self._session_manager._strip_ansi(cmd.stdout)
-                                sentinel_pattern = re.compile(re.escape(cmd.sentinel) + r"(\d+)")
-                                match = sentinel_pattern.search(clean_output)
-                                if match:
-                                    exit_code = int(match.group(1))
-                                    final_output = clean_output[: match.start()]
+                                parsed = self._session_manager._parse_sentinel(
+                                    clean_output, cmd.sentinel
+                                )
+                                if parsed:
+                                    marker_start, exit_code = parsed
+                                    final_output = clean_output[:marker_start]
                                     with self._lock:
                                         if command_id in self._commands:
                                             cmd.stdout = final_output.strip()

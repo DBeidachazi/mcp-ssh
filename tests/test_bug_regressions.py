@@ -92,6 +92,61 @@ def test_sentinel_wrapping_preserves_heredoc_delimiter_line():
     assert re.search(r"EOF\n __mcp_status=\$\?", rendered)
 
 
+def test_busybox_family_targets_use_posix_sentinel():
+    for shell_type in ("unix_shell", "openwrt", "busybox", "ash"):
+        assert SSHSessionManager._supports_posix_sentinel(shell_type)
+
+    for shell_type in ("mikrotik", "cisco", "network_device", "unknown"):
+        assert not SSHSessionManager._supports_posix_sentinel(shell_type)
+
+
+def test_openwrt_uses_unix_prompt_capture(monkeypatch):
+    class FakeShell:
+        def __init__(self):
+            self.sent = []
+            self.output = b' echo "__MCP_PROMPT_MARKER_TEST0000__"\r\n__MCP_PROMPT_MARKER_TEST0000__\r\nroot@OpenWrt:/# '
+
+        def send(self, value):
+            self.sent.append(value)
+
+        def recv_ready(self):
+            return bool(self.output)
+
+        def recv(self, _size):
+            output, self.output = self.output, b""
+            return output
+
+    manager = SSHSessionManager()
+    session_key = "root@router:22"
+    manager._session_shell_types[session_key] = "openwrt"
+    monkeypatch.setattr(
+        "mcp_ssh_session.session_manager.uuid.uuid4",
+        lambda: type("UUID", (), {"hex": "TEST0000"})(),
+    )
+
+    shell = FakeShell()
+    prompt = manager._capture_prompt(session_key, shell)
+
+    assert shell.sent == [' echo "__MCP_PROMPT_MARKER_TEST0000__"\n']
+    assert prompt == "root@OpenWrt:*#"
+
+
+def test_sentinel_parser_requires_a_complete_marker_line():
+    marker = "__MCP_CMD_TEST__"
+    echoed_wrapper = f"printf '\\n{marker}%d\\n' \"$__mcp_status\"\r\n"
+
+    assert SSHSessionManager._parse_sentinel(echoed_wrapper, marker) is None
+    assert SSHSessionManager._parse_sentinel(echoed_wrapper + marker, marker) is None
+
+    output = echoed_wrapper + f"{marker}127\r\nroot@router:/# "
+    parsed = SSHSessionManager._parse_sentinel(output, marker)
+    assert parsed is not None
+    marker_start, exit_code = parsed
+    assert output[marker_start:].startswith(marker)
+    assert output[:marker_start] == echoed_wrapper
+    assert exit_code == 127
+
+
 def test_manager_reads_pty_aware_validation_flag(monkeypatch):
     monkeypatch.setenv("MCP_SSH_INTERACTIVE_MODE", "1")
     monkeypatch.setenv("MCP_SSH_PTY_AWARE_VALIDATION", "1")

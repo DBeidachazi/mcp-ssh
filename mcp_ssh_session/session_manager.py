@@ -859,7 +859,6 @@ class SSHSessionManager:
                 "mikrotik",
                 "edgeswitch",
                 "vyos",
-                "openwrt",
                 "network_device",
             ):
                 # Network devices: just send newline and capture what comes back
@@ -1104,7 +1103,6 @@ class SSHSessionManager:
             "mikrotik",
             "edgeswitch",
             "vyos",
-            "openwrt",
             "network_device",
         ):
             logger.debug(f"Skipping PS1 check for network device type: {shell_type}")
@@ -1287,6 +1285,32 @@ class SSHSessionManager:
         """Build command text with trailing sentinel in a heredoc-safe form."""
         sentinel_command = self._build_sentinel_command(marker, shell_path)
         return f"{command}\n{sentinel_command}"
+
+    @staticmethod
+    def _supports_posix_sentinel(shell_type: str) -> bool:
+        """Return whether a detected target accepts the POSIX sentinel wrapper."""
+        return shell_type.lower() in {
+            "unix_shell",
+            "openwrt",
+            "busybox",
+            "ash",
+        }
+
+    @staticmethod
+    def _parse_sentinel(output: str, sentinel: Optional[str]) -> Optional[tuple[int, int]]:
+        """Find a completed sentinel line and return its offset and exit status."""
+        if not sentinel:
+            return None
+
+        # Requiring a complete line avoids matching the marker in the echoed wrapper.
+        match = re.search(
+            rf"(?:^|[\r\n]){re.escape(sentinel)}([0-9]{{1,3}})\r?(?=\n|$)",
+            output,
+        )
+        if not match:
+            return None
+        marker_start = match.start(1) - len(sentinel)
+        return marker_start, int(match.group(1))
 
     def _strip_sentinel(self, output: str, sentinel: Optional[str]) -> str:
         """Strip the sentinel command and marker from output if present."""
@@ -1787,7 +1811,7 @@ class SSHSessionManager:
             # Check shell type to decide on sentinel usage
             shell_type = self._session_shell_types.get(session_key, "unknown")
             logger.debug(f"Shell type for {session_key}: {shell_type}")
-            is_unix = shell_type == "unix_shell"
+            is_unix = self._supports_posix_sentinel(shell_type)
 
             # Use sentinel only for Unix-like shells and non-interactive commands
             sentinel = None
@@ -1982,19 +2006,15 @@ class SSHSessionManager:
                         # Extract exit code and clean output
                         clean_output = self._strip_ansi(raw_output)
 
-                        # Find sentinel and exit code
-                        # Pattern: marker + digits
-                        sentinel_pattern = re.compile(re.escape(sentinel) + r"(\d+)")
-                        match = sentinel_pattern.search(clean_output)
-                        if match:
-                            exit_code = int(match.group(1))
+                        parsed_sentinel = self._parse_sentinel(clean_output, sentinel)
+                        if parsed_sentinel:
+                            marker_start, exit_code = parsed_sentinel
 
                             # Clean up output: remove everything from sentinel onwards using the match position
                             # This avoids truncating at the command echo which also contains the sentinel string
 
                             # We use clean_output for truncation to ensure accurate regex index matching
-                            # match.start() is the index of the sentinel in clean_output
-                            final_output = clean_output[: match.start()]
+                            final_output = clean_output[:marker_start]
 
                             # We should return the clean output directly
                             return final_output.strip(), "", exit_code, None, sentinel
