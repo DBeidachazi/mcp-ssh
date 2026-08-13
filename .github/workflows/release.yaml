@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/mcp-ssh-session/
+      url: https://pypi.org/project/mcp-ssh/
     permissions:
       id-token: write
       contents: read
