@@ -13,11 +13,8 @@ Interactive PTY mode adds terminal emulation to SSH sessions, enabling better co
 - ✅ Screen snapshot API
 - ✅ Interactive key sending
 
-**Phase 3-4 Pending** (Mode Inference + Smart Detection)
-
-- ⏳ Mode detection (editor, pager, shell, password_prompt)
-- ⏳ Mode-aware command completion
-- ⏳ Automatic awaiting-input detection improvements
+**Mode-aware detection is available** for shell, editor, pager, and password
+prompt states. POSIX commands additionally use sentinel-based completion.
 
 ## Interactive Mode Status
 
@@ -31,7 +28,7 @@ If you need to disable interactive mode (e.g., for compatibility with older scri
 
 ```bash
 export MCP_SSH_INTERACTIVE_MODE=0
-uvx mcp-ssh-session
+uvx mcp-ssh
 ```
 
 Or in your MCP client configuration:
@@ -41,7 +38,7 @@ Or in your MCP client configuration:
   "mcpServers": {
     "ssh-session": {
       "command": "uvx",
-      "args": ["mcp-ssh-session"],
+      "args": ["mcp-ssh"],
       "env": {
         "MCP_SSH_INTERACTIVE_MODE": "0"
       }
@@ -140,7 +137,7 @@ The emulator tracks:
 - To disable, set `MCP_SSH_INTERACTIVE_MODE=0`
 - When disabled, behavior is identical to previous versions
 - No performance impact when disabled
-- Existing prompt detection and command completion logic unchanged
+- Sentinel and prompt completion remain available when terminal emulation is disabled
 
 ## Use Cases
 
@@ -219,11 +216,11 @@ SSH Channel → recv() → chunk
          read_screen() MCP tool
 ```
 
-## Future Enhancements (Phase 3-4)
+## Detection Model
 
 ### Mode Detection
 
-Automatically detect what's running:
+The terminal state detector classifies what's running:
 - **editor**: vim, nano, emacs (look for status lines, `~` markers)
 - **pager**: less, more (look for `(END)`, `--More--`, `:`)
 - **password_prompt**: password/passphrase prompts
@@ -239,7 +236,7 @@ Use screen state instead of regex:
 
 ### Automatic Input Detection
 
-Improve `_detect_awaiting_input()`:
+Further improvements to `_detect_awaiting_input()` can:
 - Use screen state to identify interactive programs
 - Don't flag editors/pagers as "awaiting input" incorrectly
 - More reliable password prompt detection

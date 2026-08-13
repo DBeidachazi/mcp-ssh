@@ -144,14 +144,21 @@ else:
 
 ## Command Completion Detection
 
-Commands complete when either:
+Unix-like targets use a unique sentinel appended to each non-interactive
+command. The sentinel carries the remote exit status and is supported by
+BusyBox `ash` and OpenWrt as well as conventional POSIX shells.
 
-1. **Prompt detected**: Standard shell prompts (`$`, `#`, `>`, `%`) at end of output
-2. **Idle timeout**: No output for 2 seconds after receiving data
+Commands complete using one of these signals:
 
-### Why Idle Timeout?
+1. **Sentinel detected**: Preferred for Unix, BusyBox, and OpenWrt shells
+2. **Prompt detected**: Used for network devices and other non-POSIX targets
+3. **Interactive state detected**: Used when a command is waiting for input
 
-Custom themed prompts (e.g., colorized, multi-line, or custom PS1) may not match standard prompt patterns. The 2-second idle timeout ensures commands complete reliably regardless of prompt style.
+### Idle Handling
+
+The two-second idle window triggers another completion check; it does not by
+itself declare a sentinel-enabled command complete. This prevents output ending
+in `$` or `#` from being mistaken for a shell prompt.
 
 ### Long-Running Commands
 
@@ -165,10 +172,10 @@ execute_command_async(host="server", command="make all", timeout=3600)
 # Outputs "Compiling file2.c" → timer resets
 # Continues until build completes or 3600s timeout
 
-# Command goes silent after completion - detects done
+# Command goes silent after completion - sentinel confirms completion
 execute_command(host="server", command="ls -la", timeout=30)
-# Outputs directory listing
-# 2 seconds of silence → command complete
+# Outputs directory listing followed by an internal completion sentinel
 ```
 
-**Key insight**: The 2s idle timeout only triggers after receiving some output. It's a completion detector, not a command killer.
+**Key insight**: Idle handling is neither a command killer nor the primary
+completion signal on POSIX shells.

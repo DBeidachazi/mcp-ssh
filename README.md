@@ -26,11 +26,22 @@ An MCP (Model Context Protocol) server that enables AI agents to establish and m
 
 ## Installation
 
+The package is published on PyPI as [`mcp-ssh`](https://pypi.org/project/mcp-ssh/).
+
 ### Using `uvx`
 
 ```bash
 uvx mcp-ssh
 ```
+
+For a persistent local installation:
+
+```bash
+uv tool install mcp-ssh
+```
+
+This installs both `mcp-ssh` and the backward-compatible
+`mcp-ssh-session` command.
 
 ### Using Claude Code
 
@@ -383,14 +394,27 @@ Commands execute in persistent interactive shells that maintain state:
 
 ### Smart Command Completion Detection
 
-Commands complete when either:
+On Unix-like shells, including BusyBox `ash` and OpenWrt, each command is
+followed by a unique sentinel that includes its exit status. This avoids
+guessing completion from prompts such as `root@OpenWrt:/#`.
 
-1. **Prompt detected**: Standard shell prompts (`$`, `#`, `>`, `%`) at end of output
-2. **Idle timeout**: No output for 2 seconds after receiving data
+Prompt detection remains available for network devices and interactive states
+that cannot use a POSIX shell sentinel. Idle detection is used only as a
+fallback while waiting for prompt or interactive-state changes.
 
-**Why idle timeout?** Custom themed prompts may not match standard patterns. The 2-second idle timeout ensures commands complete even with non-standard prompts.
+Completion signals include:
 
-**Long-running commands**: The idle timer resets every time new output arrives, so builds or scripts that output sporadically continue running until naturally complete or the overall timeout is reached.
+1. **Sentinel detected**: Reliable completion and exit status for Unix, BusyBox, and OpenWrt shells
+2. **Prompt detected**: Completion for routers, switches, and other non-POSIX targets
+3. **Interactive state detected**: Password, confirmation, editor, or pager handling
+
+**Idle handling**: After two seconds without output, the server checks the
+sentinel, prompt, and interactive state again. Silence alone does not complete a
+sentinel-enabled command.
+
+**Long-running commands**: The idle timer resets every time new output arrives,
+so builds or scripts that output sporadically continue running until naturally
+complete or the overall timeout is reached.
 
 ## Documentation
 

@@ -1,6 +1,6 @@
 # Implementation Summary: SSH Session Optimizations and mcp-ssh-tmux Branch
 
-## Bugs Fixed in mcp-ssh-session
+## Bugs Fixed in mcp-ssh
 1.  **Output Freeze**: Resolved $O(N^2)$ performance bottleneck in output buffer management by switching from string concatenation to list-based chunk accumulation.
 2.  **CPU Bottleneck**: Implemented rate-limited regex checks for prompt and input detection, ensuring the background thread remains responsive.
 3.  **Deadlocks**: Moved all `shell.send()` calls outside of lock blocks to prevent main-thread deadlocks when SSH windows are full.

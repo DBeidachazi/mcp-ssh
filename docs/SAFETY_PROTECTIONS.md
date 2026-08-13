@@ -12,22 +12,28 @@ Safety features to prevent the MCP server from becoming unresponsive and handle 
 - **Benefit**: MCP server never hangs
 
 ### 2. **Smart Command Completion Detection**
-Commands complete when either condition is met:
+Commands complete using a target-appropriate signal:
+
+#### POSIX Sentinel
+- Preferred for Unix, BusyBox `ash`, and OpenWrt
+- Carries the command's exit status
+- Avoids false completion when output ends in `$` or `#`
 
 #### Prompt Detection
 - Recognizes standard shell prompts: `$`, `#`, `>`, `%`
-- Works with most default shell configurations
+- Used for network devices and other targets without POSIX shell support
 
 #### Idle Timeout (2 seconds)
 - Triggers when no output received for 2s after getting data
-- **Purpose**: Handles custom themed prompts that don't match standard patterns
+- **Purpose**: Triggers another sentinel, prompt, and interactive-state check
+- **Safety**: Silence alone does not complete a sentinel-enabled command
 - **Safe for long commands**: Timer resets every time new output arrives
 
 **Example scenarios:**
 ```bash
-# Custom prompt - relies on idle timeout
+# Custom prompt - completion still requires a valid signal
 user@host [~/project] ❯ ls
-# Output appears, then 2s silence → complete
+# Output appears, then the sentinel confirms completion
 
 # Long build - keeps running
 make all
@@ -78,7 +84,7 @@ Execute in Persistent Shell
     ↓
 Read Output (with size limiting)
     ↓
-Detect Completion (prompt or idle timeout)
+Detect Completion (sentinel, prompt, or interactive state)
     ↓
 Return Result or Command ID
 ```
@@ -88,8 +94,10 @@ Return Result or Command ID
 1. Command sent to persistent shell
 2. Output collected with 10MB limit
 3. Check for completion:
-   - Prompt character at end? → Done
-   - No data for 2s after output? → Done
+   - Complete POSIX sentinel line found? → Done with exit status
+   - Valid network-device prompt found? → Done
+   - Interactive input state found? → Pause and return command ID
+   - No data for 2s? → Recheck completion signals
    - Overall timeout reached? → Return command ID
 4. Clean output and return
 
@@ -105,7 +113,7 @@ Return Result or Command ID
 # Works even with fancy prompts
 result = execute_command(
     host="myserver",
-    command="ls -la"  # Completes via idle timeout
+    command="ls -la"  # Completes via POSIX sentinel
 )
 ```
 
@@ -170,7 +178,7 @@ idle_timeout = 2.0  # Change from 2 seconds
 
 3. **MCP Gateway Timeout**: Your MCP gateway has a ~60s timeout. For longer commands, use `execute_command_async` to avoid client timeout.
 
-4. **Custom Prompts**: The 2s idle timeout handles any prompt style. No configuration needed.
+4. **Custom Prompts**: POSIX targets do not depend on prompt text for completion. Network devices still use captured prompt patterns.
 
 5. **Recovery After Issues**:
    - Broken shell: Automatically recreated on next command
@@ -182,20 +190,20 @@ idle_timeout = 2.0  # Change from 2 seconds
 ### Command Validation (Removed)
 Previously blocked streaming/interactive commands like `tail -f`, `top`, `watch`. **No longer needed** because:
 - Persistent shells handle interactive commands gracefully
-- Idle timeout detects completion reliably
+- Sentinel and prompt detection track completion
 - Commands can be interrupted with `interrupt_command_by_id()`
 
 All commands are now allowed. The system handles them safely through:
 - Async execution (never blocks server)
-- Idle timeout detection (completes when output stops)
+- Sentinel and prompt completion detection
 - Output limiting (prevents memory issues)
 - Command interruption (can stop any command)
 
 ## Troubleshooting
 
 ### Commands Complete Too Quickly
-- Check if idle timeout (2s) is too short for your use case
-- Increase `idle_timeout` in `_execute_standard_command_internal`
+- Check whether the target was classified as the correct shell or device type
+- Inspect sentinel and prompt detection logs for a false match
 
 ### Commands Timeout Too Quickly
 - Increase timeout parameter in tool call
@@ -203,7 +211,8 @@ All commands are now allowed. The system handles them safely through:
 - Check for slow network/device responses
 
 ### Custom Prompt Issues
-- Should work automatically via idle timeout
+- POSIX shells should complete through the sentinel regardless of prompt style
+- Network devices depend on captured prompt patterns
 - If problems persist, check logs at `/tmp/mcp_ssh_session_logs/mcp_ssh_session.log`
 - Look for `[CMD_IDLE]` and `[CMD_PROMPT]` log entries
 
