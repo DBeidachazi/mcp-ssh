@@ -155,6 +155,37 @@ def test_manager_reads_pty_aware_validation_flag(monkeypatch):
     assert manager._pty_aware_validation is True
 
 
+def test_transport_health_probe_uses_ssh_ignore():
+    class FakeTransport:
+        def __init__(self):
+            self.ignored = 0
+
+        def is_active(self):
+            return True
+
+        def send_ignore(self):
+            self.ignored += 1
+
+    class FakeClient:
+        def __init__(self):
+            self.transport = FakeTransport()
+
+        def get_transport(self):
+            return self.transport
+
+    manager = SSHSessionManager()
+    client = FakeClient()
+
+    assert manager._is_transport_healthy(client) is True
+    assert client.transport.ignored == 1
+
+
+def test_invalid_keepalive_interval_falls_back(monkeypatch):
+    monkeypatch.setenv("MCP_SSH_KEEPALIVE_INTERVAL", "invalid")
+    manager = SSHSessionManager()
+    assert manager._keepalive_interval == manager.DEFAULT_KEEPALIVE_INTERVAL
+
+
 def test_mikrotik_print_command_gets_without_paging_by_default(monkeypatch):
     monkeypatch.setenv("MCP_SSH_MIKROTIK_AUTO_WITHOUT_PAGING", "1")
     manager = SSHSessionManager()

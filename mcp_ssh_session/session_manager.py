@@ -49,6 +49,10 @@ class SSHSessionManager:
     # Maximum bytes allowed for file read/write operations (2MB)
     MAX_FILE_TRANSFER_SIZE = 2 * 1024 * 1024
 
+    # Send an SSH-level keepalive while an otherwise idle connection is open.
+    # This prevents firewalls/NATs from silently expiring persistent sessions.
+    DEFAULT_KEEPALIVE_INTERVAL = 30
+
     def __init__(self):
         self._sessions: Dict[str, paramiko.SSHClient] = {}
         self._enable_mode: Dict[
@@ -80,6 +84,22 @@ class SSHSessionManager:
         self._mikrotik_auto_without_paging = (
             os.environ.get("MCP_SSH_MIKROTIK_AUTO_WITHOUT_PAGING", "1") == "1"
         )
+        try:
+            self._keepalive_interval = max(
+                0,
+                int(
+                    os.environ.get(
+                        "MCP_SSH_KEEPALIVE_INTERVAL",
+                        str(self.DEFAULT_KEEPALIVE_INTERVAL),
+                    )
+                ),
+            )
+        except ValueError:
+            self._keepalive_interval = self.DEFAULT_KEEPALIVE_INTERVAL
+            logging.getLogger("ssh_session").warning(
+                "Invalid MCP_SSH_KEEPALIVE_INTERVAL; using %ss",
+                self.DEFAULT_KEEPALIVE_INTERVAL,
+            )
         self._session_emulators: Dict[str, Tuple[pyte.Screen, pyte.Stream]] = {}
         self._session_modes: Dict[
             str, str
@@ -109,6 +129,26 @@ class SSHSessionManager:
 
         self.command_executor = CommandExecutor(self)
         self.file_manager = FileManager(self)
+
+    def _is_transport_healthy(self, client: paramiko.SSHClient) -> bool:
+        """Return whether a cached SSH transport is usable right now.
+
+        ``Transport.is_active()`` only reflects Paramiko's local state and can
+        remain true after an idle TCP connection has been dropped by a NAT or
+        firewall.  ``send_ignore`` performs a tiny SSH round trip and exposes
+        that stale state before a command is sent to the persistent shell.
+        """
+        try:
+            transport = client.get_transport()
+            if not transport or not transport.is_active():
+                return False
+            send_ignore = getattr(transport, "send_ignore", None)
+            if send_ignore is not None:
+                send_ignore()
+            return transport.is_active()
+        except Exception as exc:
+            self.logger.debug("SSH transport health probe failed: %s", exc)
+            return False
 
     def _feed_emulator(self, session_key: str, data: str) -> None:
         """Feed data to terminal emulator if interactive mode is enabled."""
@@ -331,8 +371,7 @@ class SSHSessionManager:
                 client = self._sessions[session_key]
                 # Check if connection is still alive
                 try:
-                    transport = client.get_transport()
-                    if transport and transport.is_active():
+                    if self._is_transport_healthy(client):
                         logger.debug(f"Reusing active session: {session_key}")
                         self._ensure_shell_type(session_key, client)
                         return client
@@ -373,6 +412,15 @@ class SSHSessionManager:
                 connect_kwargs["auth_timeout"] = 30  # 30 second auth timeout
 
                 client.connect(**connect_kwargs)
+
+                transport = client.get_transport()
+                if transport and self._keepalive_interval:
+                    transport.set_keepalive(self._keepalive_interval)
+                    logger.debug(
+                        "Enabled SSH keepalive for %s (%ss)",
+                        session_key,
+                        self._keepalive_interval,
+                    )
 
                 self._sessions[session_key] = client
                 logger.info(f"Successfully created new session: {session_key}")
@@ -648,7 +696,12 @@ class SSHSessionManager:
                 transport = (
                     shell.get_transport() if hasattr(shell, "get_transport") else None
                 )
-                if shell.closed or not transport or not transport.is_active():
+                if (
+                    shell.closed
+                    or not transport
+                    or not transport.is_active()
+                    or not self._is_transport_healthy(client)
+                ):
                     logger.info(f"Shell for {session_key} is dead, recreating")
                     del self._session_shells[session_key]
                 else:
