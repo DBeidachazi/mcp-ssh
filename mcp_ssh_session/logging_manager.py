@@ -5,7 +5,7 @@ import time
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, Set
+from typing import Any, Dict, Optional, Set
 from enum import Enum
 
 
@@ -18,6 +18,18 @@ class LogLevel(Enum):
     INFO = "INFO"
     PERFORMANCE = "PERF"
     DEBUG = "DEBUG"
+
+
+def level_value(level: LogLevel) -> int:
+    """Map the facade's levels to the standard logging numeric levels."""
+    return {
+        LogLevel.DEBUG: logging.DEBUG,
+        LogLevel.INFO: logging.INFO,
+        LogLevel.WARNING: logging.WARNING,
+        LogLevel.ERROR: logging.ERROR,
+        LogLevel.CRITICAL: logging.CRITICAL,
+        LogLevel.PERFORMANCE: logging.INFO,
+    }[level]
 
 
 class RateLimitedLogger:
@@ -102,33 +114,44 @@ class RateLimitedLogger:
 
             return False
 
-    def debug(self, message: str, key: Optional[str] = None):
-        """Log debug message with rate limiting."""
-        log_key = f"{key}_debug" if key else "debug"
-        if self._should_log(LogLevel.DEBUG, log_key):
-            self.logger.debug(message)
+    def _log(
+        self,
+        level: LogLevel,
+        message: str,
+        args: tuple[Any, ...],
+        key: Optional[str],
+        kwargs: Dict[str, Any],
+    ) -> None:
+        """Forward standard logging arguments after applying rate limiting.
 
-    def info(self, message: str, key: Optional[str] = None):
-        """Log info message with rate limiting."""
-        log_key = f"{key}_info" if key else "info"
-        if self._should_log(LogLevel.INFO, log_key):
-            self.logger.info(message)
+        The project uses a rate-limited facade in many places, but callers also
+        use normal ``logging.Logger`` features such as ``%`` arguments and
+        ``exc_info``.  Keeping those arguments intact prevents the logger from
+        masking the exception it is supposed to report.
+        """
+        log_key = f"{key}_{level.value.lower()}" if key else level.value.lower()
+        if level is LogLevel.CRITICAL or self._should_log(level, log_key):
+            self.logger.log(level_value(level), message, *args, **kwargs)
 
-    def warning(self, message: str, key: Optional[str] = None):
-        """Log warning message with rate limiting."""
-        log_key = f"{key}_warning" if key else "warning"
-        if self._should_log(LogLevel.WARNING, log_key):
-            self.logger.warning(message)
+    def debug(self, message: str, *args: Any, key: Optional[str] = None, **kwargs: Any):
+        """Log a debug message with standard logging argument support."""
+        self._log(LogLevel.DEBUG, message, args, key, kwargs)
 
-    def error(self, message: str, key: Optional[str] = None):
-        """Log error message with rate limiting."""
-        log_key = f"{key}_error" if key else "error"
-        if self._should_log(LogLevel.ERROR, log_key):
-            self.logger.error(message)
+    def info(self, message: str, *args: Any, key: Optional[str] = None, **kwargs: Any):
+        """Log an info message with standard logging argument support."""
+        self._log(LogLevel.INFO, message, args, key, kwargs)
 
-    def critical(self, message: str, key: Optional[str] = None):
-        """Log critical message without rate limiting."""
-        self.logger.critical(message)
+    def warning(self, message: str, *args: Any, key: Optional[str] = None, **kwargs: Any):
+        """Log a warning message with standard logging argument support."""
+        self._log(LogLevel.WARNING, message, args, key, kwargs)
+
+    def error(self, message: str, *args: Any, key: Optional[str] = None, **kwargs: Any):
+        """Log an error message with standard logging argument support."""
+        self._log(LogLevel.ERROR, message, args, key, kwargs)
+
+    def critical(self, message: str, *args: Any, key: Optional[str] = None, **kwargs: Any):
+        """Log a critical message with standard logging argument support."""
+        self._log(LogLevel.CRITICAL, message, args, key, kwargs)
 
     def performance(
         self, operation: str, duration: float, details: Optional[Dict] = None
@@ -222,7 +245,7 @@ class ContextLogger:
         if details:
             msg += f" - {details}"
 
-        self.base_logger.info(msg, f"{operation}_start")
+        self.base_logger.info(msg, key=f"{operation}_start")
 
     def log_operation_end(
         self, operation: str, success: bool = True, details: Optional[str] = None
@@ -250,9 +273,9 @@ class ContextLogger:
 
         level = LogLevel.INFO if success else LogLevel.WARNING
         if success:
-            self.base_logger.info(msg, f"{operation}_end")
+            self.base_logger.info(msg, key=f"{operation}_end")
         else:
-            self.base_logger.warning(msg, f"{operation}_end")
+            self.base_logger.warning(msg, key=f"{operation}_end")
 
     def log_with_context(self, level: LogLevel, operation: str, message: str):
         """Log message with operation context."""
@@ -263,13 +286,13 @@ class ContextLogger:
         contextual_message = f"[{context}] {message}"
 
         if level == LogLevel.DEBUG:
-            self.base_logger.debug(contextual_message, f"{operation}_context")
+            self.base_logger.debug(contextual_message, key=f"{operation}_context")
         elif level == LogLevel.INFO:
-            self.base_logger.info(contextual_message, f"{operation}_context")
+            self.base_logger.info(contextual_message, key=f"{operation}_context")
         elif level == LogLevel.WARNING:
-            self.base_logger.warning(contextual_message, f"{operation}_context")
+            self.base_logger.warning(contextual_message, key=f"{operation}_context")
         elif level == LogLevel.ERROR:
-            self.base_logger.error(contextual_message, f"{operation}_context")
+            self.base_logger.error(contextual_message, key=f"{operation}_context")
         elif level == LogLevel.CRITICAL:
             self.base_logger.critical(contextual_message)
 

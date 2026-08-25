@@ -1,11 +1,13 @@
 import re
 from datetime import datetime
+from unittest.mock import Mock
 
 from mcp_ssh_session.command_executor import CommandExecutor
 from mcp_ssh_session.datastructures import CommandStatus, RunningCommand
 from mcp_ssh_session.file_manager import FileManager
 from mcp_ssh_session.session_manager import SSHSessionManager
 from mcp_ssh_session.validation import CommandValidator
+from mcp_ssh_session.logging_manager import RateLimitedLogger
 
 
 def test_tmux_references_in_paths_are_allowed():
@@ -178,6 +180,33 @@ def test_transport_health_probe_uses_ssh_ignore():
 
     assert manager._is_transport_healthy(client) is True
     assert client.transport.ignored == 1
+
+
+def test_rate_limited_logger_supports_standard_format_arguments():
+    rate_logger = RateLimitedLogger("test.standard_logging_args")
+    rate_logger.logger.log = Mock()
+
+    rate_logger.debug("keepalive for %s (%ss)", "root@example", 30)
+
+    rate_logger.logger.log.assert_called_once()
+    args, kwargs = rate_logger.logger.log.call_args
+    assert args == (10, "keepalive for %s (%ss)", "root@example", 30)
+    assert kwargs == {}
+
+
+def test_rate_limited_logger_supports_exc_info_keyword():
+    rate_logger = RateLimitedLogger("test.exc_info")
+    rate_logger.logger.log = Mock()
+
+    try:
+        raise RuntimeError("original failure")
+    except RuntimeError:
+        rate_logger.error("operation failed", exc_info=True)
+
+    rate_logger.logger.log.assert_called_once()
+    args, kwargs = rate_logger.logger.log.call_args
+    assert args == (40, "operation failed")
+    assert kwargs == {"exc_info": True}
 
 
 def test_invalid_keepalive_interval_falls_back(monkeypatch):
